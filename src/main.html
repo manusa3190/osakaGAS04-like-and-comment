@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style type="text/tailwindcss">
+      h1 {@apply text-2xl font-bold px-2 py-1}
+      h2 {@apply text-xl font-semibold py-1 mt-4 mb-2}
+      .gridjs-tr {@apply hover:!bg-gray-100 cursor-pointer}
+      td {@apply border px-2 py-0.5 max-w-sm whitespace-nowrap overflow-hidden text-ellipsis}
+      input {@apply block border px-2 py-1}
+      button, .button {
+        @apply bg-blue-500 px-3 py-2 text-white rounded-lg hover:opacity-70 active:opacity-50
+      }
+    </style>
+
+    <!-- gridjs -->
+    <link href="https://cdn.jsdelivr.net/npm/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+  </head>
+  <body class="w-screen h-screen p-4">
+      <div id="vue-app"></div>
+
+      <!-- vue3 -->
+      <script src="https://unpkg.com/vue@next"></script>
+      <script>const {ref,reactive, computed, watch, watchEffect, onMounted, defineComponent} = Vue</script>
+
+      <!-- vue-router -->
+      <script src="https://unpkg.com/vue-router@4"></script>
+      <script>const { useRouter, useRoute } = VueRouter</script>
+
+      <!-- gridjs -->
+      <script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+
+      <script>
+        const get商品マスタ =()=>{
+          return new Promise((resolve,reject)=>{
+            google.script.run
+              .withSuccessHandler(res=>resolve(JSON.parse(res)))
+              .getProducts()
+          })
+        }
+
+        const get8charactersString=(n)=>{
+            const S = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            return Array.from(crypto.getRandomValues(new Uint32Array(n)))
+              .map((v) => S[v % S.length])
+              .join('');
+        }
+
+        const getUser=()=>{
+          return new Promise((resolve,reject)=>{
+              google.script.run
+                .withSuccessHandler(res=>resolve(res))
+                .getUser()
+          })
+        }
+
+        const get注文グループ=(注文グループID)=>{
+          return new Promise((resolve,reject)=>{
+              google.script.run
+                .withSuccessHandler(res=>resolve(JSON.parse(res)))
+                .get注文グループ(注文グループID)  
+          })
+        }
+
+        const form = defineComponent({
+          async setup(){
+            const routeName = useRoute().name
+            const router = useRouter() // useRouteとuseRouterは内部的にinjectを使っているため、awaitより先に記述する必要がある
+            const 注文グループID = useRoute().params.id
+            const 注文 = ref({
+                注文グループID:'',
+                注文グループ名:'',
+                注文者メールアドレス:'',
+                注文者名:'',
+                期日:new Date(),
+                合計金額:0,
+                発注:false        
+            })
+            const 注文リスト = ref([])
+            const 商品マスタ = await get商品マスタ()
+
+            if(routeName==='new'){
+              注文.value.注文グループID = get8charactersString(8)
+              const{メールアドレス,名前} = await getUser()
+              注文.value.注文者メールアドレス = メールアドレス
+              注文.value.注文者名 = 名前
+            }else if(routeName==='edit'){
+              [注文.value,注文リスト.value] = await get注文グループ(注文グループID)
+              注文.value.期日 = new Date(注文.value.期日)
+            }
+
+            const 合計金額 = computed(()=>{
+                return 注文リスト.value.reduce((sum,注文品)=>{
+                  return sum + 注文品.単価*注文品.注文数
+                },0)
+            })
+
+            const save=()=>{
+              注文.value.合計金額 = 合計金額.value
+              注文リスト.value.forEach(注文品=>{
+                注文品.注文グループID=注文.value.注文グループID
+              })
+              google.script.run
+              .withSuccessHandler(()=>router.push('/'))
+              .withFailureHandler((err)=>{
+                alert(err)
+              })
+              .save注文グループ(JSON.stringify({注文:注文.value,注文リスト:注文リスト.value}))
+            }
+
+            const destroy=()=>{
+              google.script.run
+              .withSuccessHandler(()=>router.push('/'))
+              .delete注文グループ(注文グループID)
+            }
+
+            const addProduct=(_,通販コード,商品名,単位,入り数,単価)=>{
+              if(注文リスト.value.some(注文品=>注文品.通販コード===通販コード))return
+              const newProduct={
+                注文ID:get8charactersString(8),
+                注文グループID:注文グループID,
+                注文数:1,
+                通販コード:通販コード,
+                商品名:商品名,
+                単位:単位,
+                入り数:入り数,
+                単価:単価
+              }
+              注文リスト.value.push(newProduct)
+            }
+
+            return {注文,注文リスト,商品マスタ,合計金額, save,destroy,addProduct,}
+          },
+          template:`
+          <label>
+            <h2>注文者</h2>
+            <div>{{注文.注文者名}}</div>
+          </label>          
+
+          <label>
+            <h2>注文グループ名</h2>
+            <input v-model="注文.注文グループ名" placeholder="未設定" required>
+          </label>
+
+          <label>
+            <h2>期限</h2>
+            <input type="date" 
+            :value="注文.期日.toISOString().split('T')[0]" 
+            @change="注文.期日=new Date($event.target.value)">
+          </label>
+
+          <label>
+            <h2>合計金額</h2>
+            <div>{{ '¥' + 合計金額.toLocaleString()+'円' }}</div>
+          </label>
+          
+          <table class="text-sm my-4">
+              <caption class="flex justify-start"><h2>注文リスト</h2></caption>
+              <tr>
+                  <th v-for="colName of ['通販コード','商品名','入り数','単価','注文数','価格']">{{colName}}</th>
+              </tr>
+              <tr v-for="(注文品,i) of 注文リスト">
+                  <td>{{ 注文品.通販コード }}</td>
+                  <td>{{ 注文品.商品名 }}</td>
+                  <td>{{ 注文品.入り数 }}</td>
+                  <td align="end">{{ '¥'+注文品.単価.toLocaleString() }}</td>
+                  <td><input type="number" v-model="注文品.注文数" class=" inline w-12" min="1">{{注文品.単位}}</td>
+                  <td align="end">{{ '¥'+(注文品.単価*注文品.注文数).toLocaleString() }}</td>
+                  <td @click="注文リスト.splice(i,1)" class=" text-orange-500 cursor-pointer">削除</td>
+              </tr>
+          </table>
+
+          <h2>商品マスタ</h2>
+          <table class=" text-sm">
+            <tr v-for="(商品,通販コード) in 商品マスタ">
+              <td>
+                <p class=" text-blue-600 cursor-pointer hover:bg-blue-100" @click="addProduct(通販コード)">追加</p>
+              </td>
+              <td>{{通販コード}}</td>
+              <td>{{商品.商品名}}</td>
+            </tr>
+          </table>
+
+          <div class="flex space-x-3">
+            <button @click="save">{{ $route.name==='new'? '作成':'更新'}}</button>
+            <button v-if="$route.name==='edit'" @click="destroy" class="bg-orange-500">削除</button>
+            <button @click="$router.push('/')">キャンセル</button>          
+          </div>
+          `
+        })
+
+        const getAll注文グループ =()=>{
+          return new Promise((resolve,reject)=>{
+            google.script.run
+              .withSuccessHandler(res=>resolve(JSON.parse(res)))
+              .getAll注文グループ()            
+          })
+        }
+
+        const index = defineComponent({
+          async setup(){
+            const 注文グループ = await getAll注文グループ()
+            const columns = ["注文グループ名","注文者名","期日","合計金額","発注"]
+            return {注文グループ, columns}
+          },
+          template:`
+          <router-link to="/new" class="float-right inline-block button">新規作成</router-link>
+
+          <table class="w-full">
+            <tr>
+              <th v-for="colName of columns"
+              class="bg-gray-800 text-gray-100 px-2"
+              >{{colName}}</th>
+            </tr>
+
+            <tr v-for="注文 of 注文グループ"
+            @click="$router.push(注文.注文グループID)"
+            class=" hover:bg-gray-200 cursor-pointer"
+            >
+              <td>{{注文.注文グループ名}}</td>
+              <td>{{注文.注文者名}}</td>
+              <td>{{(new Date(注文.期日)).toLocaleDateString()}}</td>
+              <td>{{注文.合計金額}}</td>
+              <td>{{注文.発注? '済':'未'}}</td>
+            </tr>
+          </table>
+          `          
+        })
+
+        const app = defineComponent({
+          setup(){
+          },
+          template:`
+            <nav class=" flex  border-b-2">
+              <h1 v-if="$route.name==='index'">注文一覧</h1>
+              <h1 v-if="$route.name==='edit'">編集</h1>
+              <h1 v-if="$route.name==='new'">新規作成</h1>
+            </nav>
+            
+            <router-view v-slot="{ Component }" :key="$route.fullPath">
+              <template v-if="Component">
+                <Suspense>
+                    <component :is="Component" />                  
+                    <template #fallback>Loading...</template>                
+                </Suspense>
+              </template>
+            </router-view>
+          `
+        })
+
+        const router = VueRouter.createRouter({
+          history: VueRouter.createWebHashHistory(),
+          routes: [
+            { path: '/', name:'index',component: index },
+            { path: '/new',name:'new',component: form},
+            { path: '/:id',name:'edit',component: form},
+          ]
+        })
+
+        Vue.createApp({
+          components:{app},
+          template: `<app />`
+        })
+        .use(router)
+        .mount('#vue-app')
+      </script>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/1.6.5/flowbite.min.js"></script>
+  </body>
+</html>
