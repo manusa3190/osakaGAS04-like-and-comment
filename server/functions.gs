@@ -1,4 +1,4 @@
-const spreadsheetId = "1oY9fP8pkftsWigwgHf955_nx-a_tVmu0Vv-33A8uN4U"
+const spreadsheetId = "****各自のスプレッドシートIDに書き換え*****"
 const 注文グループ = new Sheet({spreadsheetId:spreadsheetId,sheetName:'注文グループ'})
 const 注文リスト = new Sheet({spreadsheetId:spreadsheetId,sheetName:"注文リスト"})
 const products = new Sheet({spreadsheetId:spreadsheetId,sheetName:"Products"})
